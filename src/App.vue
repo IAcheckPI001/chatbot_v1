@@ -203,11 +203,6 @@ const viewAlias = () => {
   loadAlias(false);
 };
 
-const viewTest = () => {
-  activeSection.value = 'test';
-};
-
-
 function startEdit(item: any) {
   editingId.value = item.id
   editingData.value = { ...item }
