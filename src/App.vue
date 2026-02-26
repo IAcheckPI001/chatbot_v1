@@ -51,9 +51,6 @@ function highlightChunk(text: string) {
   return text.replace(regex, '<mark class="highlight">$1</mark>')
 }
 
-const API_URL = import.meta.env.VITE_API_URL
-const API_BASE_URL = `${API_URL}/api`
-
 // chat messages shown in widget
 const messages = ref<Array<{text: string; from: 'user' | 'bot'}>>([
   { text: 'Xin chào! Tôi là trợ lý AI của UBND Phường.', from: 'bot' }
