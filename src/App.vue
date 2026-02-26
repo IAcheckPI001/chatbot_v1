@@ -13,6 +13,7 @@ const isCreateModalOpen = ref(false)
 const chunkSearch = ref('')
 const showChunkDropdown = ref(false)
 const isDeleteModalOpen = ref(false)
+const isSaving = ref(false)
 const deleteTargetId = ref<string | null>(null)
 
   
@@ -256,6 +257,7 @@ async function confirmDeleteAlias() {
 async function saveEditAlias() {
   if (!editingData.value) return
   isLoading.value = true
+  isSaving.value = true
 
   try {
     const response = await fetch(`${API_BASE_URL}/update-alias/${editingId.value}`, {
@@ -280,13 +282,14 @@ async function saveEditAlias() {
     apiError.value = `Update error: ${error.message}`
   } finally {
     isLoading.value = false
+    isSaving.value = false
   }
 }
 
 async function saveEditChunk() {
   if (!editingData.value) return
   
-  isLoading.value = true
+  isSaving.value = true
   try {
     const response = await fetch(`${API_BASE_URL}/update-chunk/${editingId.value}`, {
       method: 'PUT',
@@ -309,7 +312,7 @@ async function saveEditChunk() {
   } catch (error: any) {
     apiError.value = `Update error: ${error.message}`
   } finally {
-    isLoading.value = false
+    isSaving.value = false
   }
 }
 
@@ -485,8 +488,8 @@ function closeCreateModal() {
             </td>
             <td class="col-index action-cell">
               <div v-if="editingId === item.id" class="action-buttons">
-                <button class="btn-save" @click="saveEditAlias" :disabled="isLoading">💾</button>
-                <button class="btn-cancel" @click="cancelEdit">❌</button>
+                <button class="btn-save" @click="saveEditAlias()" :disabled="isSaving">💾</button>
+                <button class="btn-cancel" @click="cancelEdit()">❌</button>
               </div>
               <div v-else class="action-buttons">
                 <button class="btn-edit" @click="startEdit(item)">✏️</button>
@@ -589,8 +592,8 @@ function closeCreateModal() {
             </td>
             <td class="col-index action-cell">
               <div v-if="editingId === item.id" class="action-buttons">
-                <button class="btn-save" @click="saveEditChunk" :disabled="isLoading">💾</button>
-                <button class="btn-cancel" @click="cancelEdit">❌</button>
+                <button class="btn-save" @click="saveEditChunk()" :disabled="isSaving">💾</button>
+                <button class="btn-cancel" @click="cancelEdit()">❌</button>
               </div>
               <div v-else class="action-buttons">
                 <button class="btn-edit" @click="startEdit(item)">✏️</button>
