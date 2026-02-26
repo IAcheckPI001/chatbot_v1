@@ -5,8 +5,8 @@ const isOpen = ref(false)
 const userInput = ref('')
 const isLoading = ref(false)
 const apiError = ref('')
-
-const API_BASE_URL = 'http://localhost:5000/api'
+const API_URL = import.meta.env.VITE_API_URL
+const API_BASE_URL = `${API_URL}/api`
 
 // chat messages shown in widget
 const messages = ref<Array<{text: string; from: 'user' | 'bot'}>>([
