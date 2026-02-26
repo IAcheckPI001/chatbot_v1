@@ -1113,8 +1113,6 @@ function closeCreateModal() {
   color: #3730a3;
 }
 
-<<<<<<< HEAD
-/* Inline editing styles */
 .action-cell {
   min-width: 100px;
 }
@@ -1363,6 +1361,3 @@ textarea.edit-input {
   background: #dc2626;
 }
 </style>
-=======
-</style>
->>>>>>> ece5a8c747bebb838a42660196b33d9fcba2e151
