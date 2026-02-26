@@ -9,7 +9,6 @@ const isOpen = ref(false)
 const userInput = ref('')
 const isLoading = ref(false)
 const apiError = ref('')
-<<<<<<< HEAD
 const isCreateModalOpen = ref(false)
 const chunkSearch = ref('')
 const showChunkDropdown = ref(false)
@@ -52,10 +51,8 @@ function highlightChunk(text: string) {
   return text.replace(regex, '<mark class="highlight">$1</mark>')
 }
 
-=======
 const API_URL = import.meta.env.VITE_API_URL
 const API_BASE_URL = `${API_URL}/api`
->>>>>>> ece5a8c747bebb838a42660196b33d9fcba2e151
 
 // chat messages shown in widget
 const messages = ref<Array<{text: string; from: 'user' | 'bot'}>>([
