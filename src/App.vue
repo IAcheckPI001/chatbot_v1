@@ -72,6 +72,7 @@ async function sendMessage() {
   
   // call backend API
   isLoading.value = true
+  isSaving.value = true
   apiError.value = ''
   
   try {
@@ -100,6 +101,7 @@ async function sendMessage() {
     messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
   } finally {
     isLoading.value = false
+    isSaving.value = false
   }
 }
 const responses = ref<Array<{id: string; text_content: string; score: number}>>([])
@@ -633,7 +635,7 @@ function closeCreateModal() {
           placeholder="Nhập câu hỏi của bạn..."
           @keyup.enter="sendMessage"
         />
-        <button @click="sendMessage" :disabled="isLoading">{{ isLoading ? '⏳' : '➤' }}</button>
+        <button @click="sendMessage" :disabled="isLoading">{{ isSaving ? '⏳' : '➤' }}</button>
       </div>
     </div>
     <!-- Create Alias Modal -->
