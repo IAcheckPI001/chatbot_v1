@@ -395,7 +395,7 @@ function closeCreateModal() {
         >Kiểm thử</div>
       </div>
     </aside>
-    <section class="data-table" v-if="activeSection === 'test' || responses.length > 0" :class="{ 'with-chat': isOpen }">
+    <section class="data-table" v-if="activeSection === 'test'" :class="{ 'with-chat': isOpen }">
       <button class="btn-create" @click="loadData()" style="display: flex;">
         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw w-4 h-4"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>
         <span style="font-size: 0.95em; margin-top: 2.3px; margin-left: 10px;">Reload kho tri thức</span>
@@ -405,7 +405,7 @@ function closeCreateModal() {
           <tr>
             <th class="col-index">ID</th>
             <th class="col-content">Content</th>
-            <th class="col-scope">Scope</th>
+            <th class="col-scope">Score</th>
           </tr>
         </thead>
 
@@ -546,6 +546,7 @@ function closeCreateModal() {
             <th class="col-content">Text Content</th>
             <th class="col-index">Category</th>
             <th class="col-index">Subject</th>
+            <th class="col-index">Keywords</th>
             <th class="col-index">Actions</th>
           </tr>
         </thead>
@@ -591,6 +592,17 @@ function closeCreateModal() {
                 </select>
               </div>
               <span v-else>{{ item.subject || '-' }}</span>
+            </td>
+            <td class="col-content">
+              <div class="keywords-wrapper">
+                <span
+                  v-for="(kw, kIdx) in item.keywords"
+                  :key="kIdx"
+                  class="keyword-badge"
+                >
+                  {{ kw }}
+                </span>
+              </div>
             </td>
             <td class="col-index action-cell">
               <div v-if="editingId === item.id" class="action-buttons">
@@ -712,6 +724,21 @@ function closeCreateModal() {
 </template>
 
 <style scoped>
+
+.keywords-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.keyword-badge {
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 1em;
+  font-weight: 500;
+}
 
 .highlight {
   background-color: #fde047;
