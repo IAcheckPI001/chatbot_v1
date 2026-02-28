@@ -15,7 +15,6 @@ const showChunkDropdown = ref(false)
 const isDeleteModalOpen = ref(false)
 const isSaving = ref(false)
 const deleteTargetId = ref<string | null>(null)
-const newKeyword = ref('')
 const chatBody = ref<HTMLElement | null>(null)
   
 
