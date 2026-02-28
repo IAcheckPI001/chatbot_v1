@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 
 // const API_BASE_URL = 'http://localhost:5000/api'
 const API_URL = import.meta.env.VITE_API_URL
@@ -15,8 +15,11 @@ const showChunkDropdown = ref(false)
 const isDeleteModalOpen = ref(false)
 const isSaving = ref(false)
 const deleteTargetId = ref<string | null>(null)
-
+const newKeyword = ref('')
+const chatBody = ref<HTMLElement | null>(null)
   
+
+
 const newAlias = ref({
   alias_text: '',
   normalized_alias: '',
@@ -57,6 +60,16 @@ const messages = ref<Array<{text: string; from: 'user' | 'bot'}>>([
   { text: 'Xin chào! Tôi là trợ lý AI của UBND Phường.', from: 'bot' }
 ])
 
+function scrollToBottom() {
+  if (chatBody.value) {
+    chatBody.value.scrollTop = chatBody.value.scrollHeight
+  }
+}
+watch(messages, async () => {
+  await nextTick()
+  scrollToBottom()
+}, { deep: true })
+
 async function sendMessage() {
   if (!userInput.value.trim()) return
   const text = userInput.value.trim()
@@ -74,28 +87,41 @@ async function sendMessage() {
   isLoading.value = true
   isSaving.value = true
   apiError.value = ''
-  
+  clearLogs();
   try {
-    const response = await fetch(`${API_BASE_URL}/chat`, {
+    const res = await fetch(`${API_BASE_URL}/chat-stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text })
     })
-    
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`)
+
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const chunk = decoder.decode(value)
+      const lines = chunk.split('\n\n')
+
+      lines.forEach(line => {
+        if (line.startsWith('data: ')) {
+          const data = JSON.parse(line.replace('data: ', ''))
+
+          if (data.log) {
+            addLog(data.log)
+          }
+
+          if (data.replies) {
+            let botReply = data.replies[0].text_content
+            messages.value.push({ text: botReply, from: 'bot' })
+            // update table with all returned responses
+            responses.value = data.replies || []
+          }
+        }
+      })
     }
-    
-    const data = await response.json()
-    
-    // display bot response in chat
-    if (data.replies && data.replies.length > 0) {
-      let botReply = data.replies[0].text_content
-      messages.value.push({ text: botReply, from: 'bot' })
-    }
-    
-    // update table with all returned responses
-    responses.value = data.replies || []
   } catch (error: any) {
     apiError.value = `Connection error: ${error.message}`
     messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
@@ -104,14 +130,64 @@ async function sendMessage() {
     isSaving.value = false
   }
 }
+
+// async function sendMessage() {
+//   if (!userInput.value.trim()) return
+//   const text = userInput.value.trim()
+//   // push user message
+//   messages.value.push({ text, from: 'user' })
+//   userInput.value = ''
+  
+//   // clear table data
+//   responses.value = []
+  
+//   // switch to test section to show data-table
+//   activeSection.value = 'test'
+  
+//   // call backend API
+//   isLoading.value = true
+//   isSaving.value = true
+//   apiError.value = ''
+  
+//   try {
+//     const response = await fetch(`${API_BASE_URL}/chat`, {
+//       method: 'POST',
+//       headers: { 'Content-Type': 'application/json' },
+//       body: JSON.stringify({ message: text })
+//     })
+    
+//     if (!response.ok) {
+//       throw new Error(`API error: ${response.status}`)
+//     }
+    
+//     const data = await response.json()
+    
+//     // display bot response in chat
+//     if (data.replies && data.replies.length > 0) {
+//       let botReply = data.replies[0].text_content
+//       messages.value.push({ text: botReply, from: 'bot' })
+//     }
+    
+//     // update table with all returned responses
+//     responses.value = data.replies || []
+//     addLog(data.log_data)
+//   } catch (error: any) {
+//     apiError.value = `Connection error: ${error.message}`
+//     messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
+//   } finally {
+//     isLoading.value = false
+//     isSaving.value = false
+//   }
+// }
 const responses = ref<Array<{id: string; text_content: string; score: number}>>([])
 const chunksData = ref<Array<any>>([])
 const aliasData = ref<Array<any>>([])
 const categoryFilter = ref<string>('')
 const subjectFilter = ref<string>('')
+const aliasFilter = ref<string>('')
 const editingId = ref<string | null>(null)
 const editingData = ref<any>(null)
-const activeSection = ref("data-sources");
+const activeSection = ref("chunks");
 const searchKeyword = ref('')
 
 const filteredChunks = computed(() => {
@@ -129,6 +205,18 @@ const filteredChunks = computed(() => {
   })
 })
 
+const filteredAlias = computed(() => {
+  return aliasData.value.filter(item => {
+
+    const keywordMatch =
+      !searchKeyword.value ||
+      item.alias_text
+        ?.toLowerCase()
+        .includes(searchKeyword.value.toLowerCase())
+
+    return keywordMatch
+  })
+})
 
 function highlightText(text: string) {
   if (!searchKeyword.value) return text
@@ -165,8 +253,8 @@ async function loadChunks($load: boolean) {
 }
 
 async function loadData() {
-  loadChunks(true)
-  loadAlias(true)
+  loadChunks(false)
+  loadAlias(false)
 }
 
 async function loadAlias($load: boolean) {
@@ -208,7 +296,9 @@ const viewAlias = () => {
 
 function startEdit(item: any) {
   editingId.value = item.id
-  editingData.value = { ...item }
+  editingData.value = { ...item,
+    keywords: item.keywords ? [...item.keywords] : []
+   }
   // Auto expand textarea on next tick
   setTimeout(() => {
     const textarea = document.querySelector('textarea.edit-input') as HTMLTextAreaElement
@@ -363,6 +453,87 @@ function closeCreateModal() {
     document_id: null
   }
 }
+
+function addKeyword() {
+  const value = newKeyword.value.trim()
+
+  if (!value) return
+
+  // tránh trùng
+  if (editingData.value.keywords.includes(value)) {
+    newKeyword.value = ''
+    return
+  }
+
+  editingData.value.keywords.push(value)
+  newKeyword.value = ''
+}
+
+function removeKeyword(index: number) {
+  editingData.value.keywords.splice(index, 1)
+}
+
+onMounted(() => {
+  loadData()
+});
+
+
+const logs = ref<{ type: string; message: string }[]>([])
+const logBody = ref<HTMLElement | null>(null)
+
+function addLog(message: string, type: 'info' | 'warn' | 'error' = 'info') {
+  logs.value.push({
+    type,
+    message: `[${new Date().toLocaleTimeString()}] ${message}`
+  })
+}
+
+function clearLogs() {
+  logs.value = []
+}
+
+// Auto scroll xuống cuối khi có log mới
+watch(logs, async () => {
+  await nextTick()
+  if (logBody.value) {
+    logBody.value.scrollTop = logBody.value.scrollHeight
+  }
+}, { deep: true })
+
+
+
+const logPanel = ref<HTMLElement | null>(null)
+
+let isDragging = false
+let offsetX = 0
+let offsetY = 0
+
+function startDrag(e: MouseEvent) {
+  if (!logPanel.value) return
+
+  isDragging = true
+  const rect = logPanel.value.getBoundingClientRect()
+
+  offsetX = e.clientX - rect.left
+  offsetY = e.clientY - rect.top
+
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+}
+
+function onDrag(e: MouseEvent) {
+  if (!isDragging || !logPanel.value) return
+
+  logPanel.value.style.left = `${e.clientX - offsetX}px`
+  logPanel.value.style.top = `${e.clientY - offsetY}px`
+  logPanel.value.style.bottom = 'auto'
+}
+
+function stopDrag() {
+  isDragging = false
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+}
 </script>
 
 <template>
@@ -395,114 +566,137 @@ function closeCreateModal() {
         >Kiểm thử</div>
       </div>
     </aside>
-    <section class="data-table" v-if="activeSection === 'test'" :class="{ 'with-chat': isOpen }">
-      <button class="btn-create" @click="loadData()" style="display: flex;">
+    <!-- :class="{ 'with-chat': isOpen = true } -->
+    <div class="table-wrapper" v-if="activeSection === 'test'" :class="{ 'with-chat': isOpen }">
+      <button class="btn-create" @click="loadData()" style="display: flex; margin-top: 18px; margin-left: 43px;">
         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw w-4 h-4"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>
-        <span style="font-size: 0.95em; margin-top: 2.3px; margin-left: 10px;">Reload kho tri thức</span>
+        <span style="font-size: 0.95em; margin-top: 2.3px; margin-left: 10px; ">Reload kho tri thức</span>
       </button>
-      <table>
-        <thead>
-          <tr>
-            <th class="col-index">ID</th>
-            <th class="col-content">Content</th>
-            <th class="col-scope">Score</th>
-          </tr>
-        </thead>
+      <section class="data-table">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th class="col-index">ID</th>
+                <th class="col-content">Content</th>
+                <th class="col-scope">Score</th>
+              </tr>
+            </thead>
 
-        <tbody>
-          <tr v-for="(item, idx) in responses" :key="idx">
-            <td class="col-index">{{ idx + 1 }}</td>
+            <tbody>
+              <tr v-for="(item, idx) in responses" :key="idx">
+                <td class="col-index">{{ idx + 1 }}</td>
+                <td class="col-content">
+                  <div class="content-text">
+                    {{ item.text_content }}
+                  </div>
+                </td>
+                <td class="col-scope">
+                  <span class="badge">{{ item.score }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- Debug Log Panel -->
+        <div class="log-panel" ref="logPanel">
+          <div class="log-header" @mousedown="startDrag">
+            <span>Debug Log</span>
+            <button @click="clearLogs">Clear</button>
+          </div>
 
-            <td class="col-content">
-              <div class="content-text">
-                {{ item.text_content }}
-              </div>
-            </td>
-
-            <td class="col-scope">
-              <span class="badge">{{ item.score }}</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
+          <div class="log-body" ref="logBody">
+            <div 
+              v-for="(log, index) in logs" 
+              :key="index"
+              :class="['log-item', log.type]"
+            >
+              {{ log.message }}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
     <section class="data-chunks-table" v-if="activeSection === 'alias'" :class="{ 'with-chat': isOpen }">
       <!-- Search -->
       <div class="search-box">
         <input 
           v-model="searchKeyword"
           type="text" 
-          placeholder="Tìm kiếm nội dung..." 
+          placeholder="Tìm kiếm alias text..." 
         />
-      </div>
-      <button class="btn-create" @click="isCreateModalOpen = true" style="display: flex;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus w-4 h-4"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
-        <span style="font-size: 0.95em; margin-top: 2.2px; margin-left: 10px;">Tạo alias</span>
+        <button class="btn-create" @click="isCreateModalOpen = true" style="display: flex;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus w-4 h-4"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+          <span style="font-size: 0.95em; margin-top: 2.2px; margin-left: 10px;">Tạo alias</span>
       </button>
-      <table>
-        <thead>
-          <tr>
-            <th class="col-index">ID</th>
-            <th class="col-index">Text content</th>
-            <th class="col-index">Alias text</th>
-            <th class="col-index">Normalized alias</th>
-            <th class="col-index">Actions</th>
-          </tr>
-        </thead>
+      </div>
+      <div class="filter-result">Tìm thấy {{ filteredAlias.length }} / {{ aliasData.length }} kết quả</div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th class="col-index">ID</th>
+              <th class="col-index">Document</th>
+              <th class="col-index">Alias text</th>
+              <th class="col-index">Normalized alias</th>
+              <th class="col-index">Actions</th>
+            </tr>
+          </thead>
 
-        <tbody>
-          <tr v-if="aliasData.length === 0">
-            <td colspan="5" style="text-align: center; padding: 20px; color: #999;">
-              {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
-            </td>
-          </tr>
-          <tr v-for="(item, idx) in aliasData" :key="idx">
-            <td class="col-index">{{ idx + 1 }}</td>
-            <td class="col-content" style="width: 50%;">
-              <!-- Khi edit -->
-                <option 
-                v-for="chunk in chunksData.filter(chunk => chunk.id === item.document_id)" 
-                :key="chunk.id" 
-                :value="chunk.id"
-              >
-                {{ chunk.text_content.slice(0, 70) }}...
-              </option>
-            </td>
-            <td class="col-content" style="width: 40%;">
-              <div v-if="editingId === item.id" class="edit-input-wrapper">
-                <textarea v-model="editingData.alias_text" class="edit-input" rows="3" @input="autoExpandTextarea($event.target as HTMLTextAreaElement)" required></textarea>
-              </div>
-              <div 
-                v-else 
-                class="content-text"
-                v-html="highlightText(item.alias_text)"
-              ></div>
-            </td>
-            <td class="col-content">
-              <div v-if="editingId === item.id" class="edit-input-wrapper">
-                <textarea v-model="editingData.normalized_alias" class="edit-input" rows="3" @input="autoExpandTextarea($event.target as HTMLTextAreaElement)" required></textarea>
-              </div>
-              <div 
-                v-else 
-                class="content-text"
-                v-html="item.normalized_alias"
-              ></div>
-            </td>
-            <td class="col-index action-cell">
-              <div v-if="editingId === item.id" class="action-buttons">
-                <button class="btn-save" @click="saveEditAlias()" :disabled="isSaving">💾</button>
-                <button class="btn-cancel" @click="cancelEdit()">❌</button>
-              </div>
-              <div v-else class="action-buttons">
-                <button class="btn-edit" @click="startEdit(item)">✏️</button>
-                <button class="btn-edit" @click="openDeleteModal(item.id)">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2 lucide-trash-2 w-4 h-4"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line></svg>
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+          <tbody>
+            <tr v-if="filteredAlias.length === 0">
+              <td colspan="5" style="text-align: center; padding: 20px; color: #999;">
+                {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
+              </td>
+            </tr>
+            <tr v-for="(item, idx) in filteredAlias" :key="idx">
+              <td class="col-index">{{ idx + 1 }}</td>
+              <td class="col-content" style="width: 50%;">
+                <!-- Khi edit -->
+                  <option 
+                  v-for="chunk in chunksData.filter(chunk => chunk.id === item.document_id)" 
+                  :key="chunk.id" 
+                  :value="chunk.id"
+                >
+                  {{ (chunk.procedure_name || chunk.text_content).slice(0, 70) }}
+                </option>
+              </td>
+              <td class="col-content" style="width: 40%;">
+                <div v-if="editingId === item.id" class="edit-input-wrapper">
+                  <textarea v-model="editingData.alias_text" class="edit-input" rows="3" @input="autoExpandTextarea($event.target as HTMLTextAreaElement)" required></textarea>
+                </div>
+                <div 
+                  v-else 
+                  class="content-text"
+                  v-html="highlightText(item.alias_text)"
+                ></div>
+              </td>
+              <td class="col-content">
+                <div v-if="editingId === item.id" class="edit-input-wrapper">
+                  <textarea v-model="editingData.normalized_alias" class="edit-input" rows="3" @input="autoExpandTextarea($event.target as HTMLTextAreaElement)" required></textarea>
+                </div>
+                <div 
+                  v-else 
+                  class="content-text"
+                  v-html="item.normalized_alias"
+                ></div>
+              </td>
+              <td class="col-index action-cell">
+                <div v-if="editingId === item.id" class="action-buttons">
+                  <button class="btn-save" @click="saveEditAlias()" :disabled="isSaving">💾</button>
+                  <button class="btn-cancel" @click="cancelEdit()">❌</button>
+                </div>
+                <div v-else class="action-buttons">
+                  <button class="btn-edit" @click="startEdit(item)">✏️</button>
+                  <button class="btn-edit" @click="openDeleteModal(item.id)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2 lucide-trash-2 w-4 h-4"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section class="data-chunks-table" v-if="activeSection === 'chunks'" :class="{ 'with-chat': isOpen }">
@@ -539,91 +733,82 @@ function closeCreateModal() {
         <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''">Xóa bộ lọc</button>
       </div>
       <div class="filter-result">Tìm thấy {{ filteredChunks.length }} / {{ chunksData.length }} kết quả</div>
-      <table>
-        <thead>
-          <tr>
-            <th class="col-index">ID</th>
-            <th class="col-content">Text Content</th>
-            <th class="col-index">Category</th>
-            <th class="col-index">Subject</th>
-            <th class="col-index">Keywords</th>
-            <th class="col-index">Actions</th>
-          </tr>
-        </thead>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th class="col-index">ID</th>
+              <th class="col-content">Text Content</th>
+              <th class="col-index">Category</th>
+              <th class="col-index">Subject</th>
+              <!-- <th class="col-index">Keywords</th> -->
+              <th class="col-index">Actions</th>
+            </tr>
+          </thead>
 
-        <tbody>
-          <tr v-if="chunksData.length === 0">
-            <td colspan="5" style="text-align: center; padding: 20px; color: #999;">
-              {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
-            </td>
-          </tr>
-          <tr v-for="(item, idx) in filteredChunks" :key="idx">
-            <td class="col-index">{{ idx + 1 }}</td>
-            <td class="col-content">
-              <div v-if="editingId === item.id" class="edit-input-wrapper">
-                <textarea v-model="editingData.text_content" class="edit-input" rows="3" @input="autoExpandTextarea($event.target as HTMLTextAreaElement)"></textarea>
-              </div>
-              <div 
-                v-else 
-                class="content-text"
-                v-html="highlightText(item.text_content)"
-              ></div>
-            </td>
-            <td class="col-index">
-              <div v-if="editingId === item.id" class="edit-input-wrapper">
-                <select v-model="editingData.category" class="edit-input edit-select">
-                  <option value="">-- Chọn --</option>
-                  <option value="thong_tin_phuong">thong_tin_phuong</option>
-                  <option value="thu_tuc_hanh_chinh">thu_tuc_hanh_chinh</option>
-                </select>
-              </div>
-              <span v-else>{{ item.category || '-' }}</span>
-            </td>
-            <td class="col-index">
-              <div v-if="editingId === item.id" class="edit-input-wrapper">
-                <select v-model="editingData.subject" class="edit-input edit-select">
-                  <option value="">-- Chọn --</option>
-                  <option value="tu_phap_ho_tich">tu_phap_ho_tich</option>
-                  <option value="thong_tin_khu_pho">thong_tin_khu_pho</option>
-                  <option value="lich_lam_viec">lich_lam_viec</option>
-                  <option value="lanh_dao">lanh_dao</option>
-                  <option value="thong_tin_lien_he">thong_tin_lien_he</option>
-                  <option value="tong_quan">tong_quan</option>
-                </select>
-              </div>
-              <span v-else>{{ item.subject || '-' }}</span>
-            </td>
-            <td class="col-content">
-              <div class="keywords-wrapper">
-                <span
-                  v-for="(kw, kIdx) in item.keywords"
-                  :key="kIdx"
-                  class="keyword-badge"
-                >
-                  {{ kw }}
-                </span>
-              </div>
-            </td>
-            <td class="col-index action-cell">
-              <div v-if="editingId === item.id" class="action-buttons">
-                <button class="btn-save" @click="saveEditChunk()" :disabled="isSaving">💾</button>
-                <button class="btn-cancel" @click="cancelEdit()">❌</button>
-              </div>
-              <div v-else class="action-buttons">
-                <button class="btn-edit" @click="startEdit(item)">✏️</button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+          <tbody>
+            <tr v-if="chunksData.length === 0">
+              <td colspan="5" style="text-align: center; padding: 20px; color: #999;">
+                {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
+              </td>
+            </tr>
+            <tr v-for="(item, idx) in filteredChunks" :key="idx">
+              <td class="col-index">{{ idx + 1 }}</td>
+              <td class="col-content">
+                <div v-if="editingId === item.id" class="edit-input-wrapper">
+                  <textarea v-model="editingData.text_content" class="edit-input" rows="3" @input="autoExpandTextarea($event.target as HTMLTextAreaElement)"></textarea>
+                </div>
+                <div 
+                  v-else 
+                  class="content-text"
+                  v-html="highlightText(item.text_content)"
+                ></div>
+              </td>
+              <td class="col-index">
+                <div v-if="editingId === item.id" class="edit-input-wrapper">
+                  <select v-model="editingData.category" class="edit-input edit-select">
+                    <option value="">-- Chọn --</option>
+                    <option value="thong_tin_phuong">thong_tin_phuong</option>
+                    <option value="thu_tuc_hanh_chinh">thu_tuc_hanh_chinh</option>
+                  </select>
+                </div>
+                <span v-else>{{ item.category || '-' }}</span>
+              </td>
+              <td class="col-index">
+                <div v-if="editingId === item.id" class="edit-input-wrapper">
+                  <select v-model="editingData.subject" class="edit-input edit-select">
+                    <option value="">-- Chọn --</option>
+                    <option value="tu_phap_ho_tich">tu_phap_ho_tich</option>
+                    <option value="thong_tin_khu_pho">thong_tin_khu_pho</option>
+                    <option value="lich_lam_viec">lich_lam_viec</option>
+                    <option value="lanh_dao">lanh_dao</option>
+                    <option value="thong_tin_lien_he">thong_tin_lien_he</option>
+                    <option value="tong_quan">tong_quan</option>
+                  </select>
+                </div>
+                <span v-else>{{ item.subject || '-' }}</span>
+              </td>
+              <td class="col-index action-cell">
+                <div v-if="editingId === item.id" class="action-buttons">
+                  <button class="btn-save" @click="saveEditChunk()" :disabled="isSaving">💾</button>
+                  <button class="btn-cancel" @click="cancelEdit()">❌</button>
+                </div>
+                <div v-else class="action-buttons">
+                  <button class="btn-edit" @click="startEdit(item)">✏️</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
     <!-- Floating Button -->
-    <section class="chat-toggle" @click="isOpen = !isOpen">
+    <!-- <section class="chat-toggle" @click="isOpen = !isOpen">
       💬
-    </section>
+    </section> -->
 
     <!-- Chat Window -->
-    <div v-if="isOpen" class="chat-widget">
+    <div v-if="isOpen = true" class="chat-widget">
       <!-- Header -->
       <div class="chat-header">
         <div class="chat-title">
@@ -634,8 +819,15 @@ function closeCreateModal() {
       </div>
 
       <!-- Messages -->
-      <div class="chat-body">
-        <div v-for="(msg, idx) in messages" :key="idx" :class="msg.from + '-message'">
+      <div 
+        class="chat-body"
+        ref="chatBody"
+      >
+        <div 
+          v-for="(msg, idx) in messages" 
+          :key="idx" 
+          :class="msg.from + '-message'"
+        >
           {{ msg.text }}
         </div>
       </div>
@@ -725,6 +917,10 @@ function closeCreateModal() {
 
 <style scoped>
 
+body{
+  margin: 0;
+}
+
 .keywords-wrapper {
   display: flex;
   flex-wrap: wrap;
@@ -737,7 +933,49 @@ function closeCreateModal() {
   padding: 4px 10px;
   border-radius: 14px;
   font-size: 1em;
-  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.keyword-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9em;
+  color: #ef4444;
+}
+
+.keyword-remove-btn:hover {
+  color: #000000;
+}
+
+.keyword-add-wrapper {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.keyword-input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 0.95em;
+  border-radius: 6px;
+  border: 1px solid #6366f1;
+}
+
+.btn-add-keyword {
+  background: #6366f1;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-add-keyword:hover {
+  background: #3134ee;
+  transition-delay: 1ms;
 }
 
 .highlight {
@@ -825,8 +1063,8 @@ function closeCreateModal() {
 
 .chat-widget {
   position: fixed;
-  bottom: 90px;
-  right: 20px;
+  bottom: 8px;
+  left: 16px;
   width: 380px;
   height: 520px;
   background: #f3f4f6;
@@ -942,6 +1180,9 @@ function closeCreateModal() {
   border-radius: 14px;
   box-shadow: 0 8px 20px rgba(0,0,0,0.06);
   overflow: auto;
+  height: 58vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .data-table table {
@@ -997,9 +1238,9 @@ function closeCreateModal() {
 }
 
 /* when chat is open reserve space on right so table isn't covered */
-.data-table.with-chat {
-  margin-right: 380px; /* chat width 360px + 20px gap */
-}
+/* .data-table.with-chat {
+  margin-right: 380px;
+} */
 
 /* Data chunks table - similar to data-table */
 .data-chunks-table {
@@ -1011,6 +1252,9 @@ function closeCreateModal() {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  height: 92vh;
+  margin-left: 3.2rem;
+  margin-bottom: 1rem;
 }
 
 /* Filter Section */
@@ -1121,9 +1365,9 @@ function closeCreateModal() {
   background: #f9fafb;
 }
 
-.data-chunks-table.with-chat {
+/* .data-chunks-table.with-chat {
   margin-right: 380px;
-}
+} */
 
 /* Content text */
 .content-text {
@@ -1132,6 +1376,7 @@ function closeCreateModal() {
   /* allow full text to display */
   display: block;
   overflow: visible;
+  white-space: pre-line;
 }
 
 /* Scope badge */
@@ -1165,9 +1410,7 @@ function closeCreateModal() {
     font-weight: 500;
     font-size: 0.95em;
     transition: all 200ms;
-    margin-left: auto;
     margin-right: 26px;
-    margin-bottom: 12px;
 }
 
 .btn-edit, .btn-save, .btn-cancel {
@@ -1306,6 +1549,10 @@ textarea.edit-input {
 }
 .search-box {
   margin: 20px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
 }
 
 .search-box input {
@@ -1391,5 +1638,99 @@ textarea.edit-input {
 
 .btn-delete-confirm:hover {
   background: #dc2626;
+}
+
+/* .log-panel {
+  position: fixed;
+  bottom: 12px;
+  width: 40%;
+  margin-top: 16px;
+  background: #111827;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 200px;
+  border-top: 2px solid #1f2937;
+  margin-left: 26px;
+} */
+
+.log-panel {
+  position: fixed;
+  bottom: 14px;
+  left: 426px;
+  width: 520px;
+  height: 200px;
+  background: #111827;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  z-index: 2000;
+  cursor: default;
+  border-top: 2px solid #1f2937;
+}
+
+.log-header {
+  background: #1f2937;
+  color: white;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9em;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.log-header button {
+  background: none;
+  border: 1px solid #374151;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.log-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: #d1d5db;
+}
+
+.log-item {
+  margin-bottom: 4px;
+}
+
+.log-item.info {
+  color: #60a5fa;
+  font-size: 1.3em;
+}
+
+.log-item.warn {
+  color: #fbbf24;
+}
+
+.log-item.error {
+  color: #f87171;
+}
+.table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.table-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Giữ header dính trên */
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: #f9fafb;   /* bắt buộc có background */
+  z-index: 5;
 }
 </style>

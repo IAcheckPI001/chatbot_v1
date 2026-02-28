@@ -23,7 +23,9 @@ client = OpenAI(
 @app.route('/api/get-chunks', methods=['GET'])
 def get_chunks():
     try:
-        response = supabase.table("documents").select("*").execute()
+        response = supabase.table("documents") \
+            .select("id, procedure_name, text_content, category, subject, is_active, effective_date") \
+            .execute()
 
         if not response.data:
             return jsonify({
@@ -44,7 +46,9 @@ def get_chunks():
 @app.route('/api/get-alias', methods=['GET'])
 def get_alias():
     try:
-        response = supabase.table("alias").select("*").execute()
+        response = supabase.table("alias") \
+            .select("id, document_id, alias_text, normalized_alias") \
+            .execute()
 
         if not response.data:
             return jsonify({
@@ -69,11 +73,18 @@ def create_alias():
         # Validate cơ bản
         if not data.get("alias_text"):
             return jsonify({"error": "alias_text is required"}), 400
+        
+        alias_embedding = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=data.get("alias_text")
+        ).data[0].embedding
+
 
         new_alias = {
             "document_id": data.get("document_id") or None,
             "alias_text": data.get("alias_text") or '',
             "normalized_alias": normalize_text(data.get("alias_text")) if data.get("alias_text") else '',
+            "embedding": alias_embedding
         }
 
         response = supabase.table("alias") \
@@ -111,9 +122,16 @@ def update_chunk(chunk_id):
     try:
         data = request.json
 
+        category = data.get("category")
+        text_content = data.get("text_content")
+
+        if category == "thong_tin_phuong":
+            normalized_text = normalize_text(text_content)
+
         response = supabase.table("documents") \
             .update({
                 "text_content": data.get("text_content"),
+                "normalized_text": normalized_text,
                 "category": data.get("category") or None,
                 "subject": data.get("subject") or None
             }) \
@@ -139,11 +157,17 @@ def update_alias(alias_id):
     try:
         data = request.json
 
+        alias_embedding = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=data.get("alias_text")
+        ).data[0].embedding
+
         response = supabase.table("alias") \
             .update({
                 "document_id": data.get("document_id") or None,
                 "alias_text": data.get("alias_text") or '',
-                "normalized_alias": data.get("normalized_alias") or '',
+                "normalized_alias": normalize_text(data.get("alias_text")) or '',
+                "embedding": alias_embedding
             }) \
             .eq("id", alias_id) \
             .execute()
@@ -160,6 +184,47 @@ def update_alias(alias_id):
         return jsonify({
             "error": str(e)
         }), 500
+
+from flask import Response
+import json
+
+@app.route('/api/chat-stream', methods=['POST'])
+def chat_stream():
+
+    # ✅ LẤY DATA TRƯỚC
+    data = request.json
+    user_message = data.get('message', '').strip()
+
+    def generate():
+
+        yield f"data: {json.dumps({'log': f'Nhận message...'})}\n\n"
+
+        q_format = normalize_text(user_message)
+        yield f"data: {json.dumps({'log': f'Normalized: {q_format}'})}\n\n"
+
+        category, subject = classify(q_format)
+        yield f"data: {json.dumps({'log': f'Category: {category}, Subject: {subject}'})}\n\n"
+
+        query_embedding = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=user_message
+        ).data[0].embedding
+
+        response = supabase.rpc(
+            "search_documents_full_hybrid_v4",
+            {
+                "p_query_format": q_format,
+                "p_query_embedding": query_embedding,
+                "p_tenant": "xa_ba_diem",
+                "p_category": category,
+                "p_subject": subject,
+                "p_limit": 5
+            }
+        ).execute()
+
+        yield f"data: {json.dumps({'replies': response.data})}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream')
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
@@ -178,30 +243,30 @@ def chat():
     category, subject = classify(q_format)
     print(f"Query: {q_format}\n=> Category: {category}, Subject: {subject}\n")
 
+    log_data = f"""Query: {user_message}\n=> Category: {category}, Subject: {subject}"""
+
     query_embedding = client.embeddings.create(
         model="text-embedding-3-small",
-        input=q_format
+        input=user_message
     ).data[0].embedding
 
     response = supabase.rpc(
-        "search_documents_full_hybrid_v1",
+        "search_documents_full_hybrid_v4",
         {
-            "p_query": q_format,
+            "p_query_format": q_format,
             "p_query_embedding": query_embedding,
             "p_tenant": "xa_ba_diem",
             "p_category": category,
             "p_subject": subject,
-            "p_limit": 4
+            "p_limit": 5
         }
     ).execute()
 
-    print(response.data)
-    
-    
     # Return all responses from knowledge base (you can add better matching logic here)
     return jsonify({
         "replies": response.data,
         "message": user_message,
+        "log_data":log_data,
         "timestamp": datetime.now().isoformat()
     })
 

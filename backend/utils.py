@@ -1,10 +1,15 @@
 
+import re
 import unicodedata
 
 def normalize_text(text: str) -> str:
     # Bỏ dấu tiếng Việt
     text = unicodedata.normalize("NFD", text)
     text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+
+    text = re.sub(r"[^\w\s]", "", text)
+
+    text = text.replace("  ", " ")
     
     # Thay _ thành khoảng trắng
     text = text.replace('_', ' ')
@@ -20,7 +25,6 @@ def normalize_text(text: str) -> str:
     # Chuẩn hóa lowercase + trim
     return text.lower().strip()
 
-
 THU_TUC_KEYWORDS = [
     "thu tuc",
     "dang ky",
@@ -35,7 +39,9 @@ THU_TUC_KEYWORDS = [
     "lam the nao",
     "can gi",
     "nop truc tuyen",
-    "truc tuyen"
+    "truc tuyen",
+    "giay to",
+    "le phi"
 ]
 
 PHUONG_INFO_KEYWORDS = [
@@ -59,9 +65,17 @@ PHUONG_INFO_KEYWORDS = [
     "nam o dau",
     "lien he",
     "thanh lap",
-    "nam nao"
+    "nam nao",
+    "xa ba diem"
 ]
 
+NHAN_SU_INFO_KEYWORDS = [
+    "giam doc",
+    "phu trach",
+    "cong chuc",
+    "nhan vien",
+    "lanh dao"
+]
 
 LANH_DAO_INFO_KEYWORDS = [
     "bi thu phuong",
@@ -105,6 +119,8 @@ CONTACT_INFO_KEYWORDS = [
     "fanpage",
     "so dien thoai",
     "dia chi",
+    "goi dien",
+    "zalo",
 ]
 
 LICH_LAM_VIEC_KEYWORDS = [
@@ -137,12 +153,12 @@ LICH_LAM_VIEC_KEYWORDS = [
     "may gio",
 ]
 
-
 def classify(q: str):
 
     # --- Scores ---
     thu_tuc_score = sum(1 for kw in THU_TUC_KEYWORDS if kw in q)
     lanh_dao_score = sum(1 for kw in LANH_DAO_INFO_KEYWORDS if kw in q)
+    nhan_su_score = sum(1 for kw in NHAN_SU_INFO_KEYWORDS if kw in q)
     khu_pho_score = sum(1 for kw in KHU_PHO_KEYWORDS if kw in q)
     contact_score = sum(1 for kw in CONTACT_INFO_KEYWORDS if kw in q)
     lich_score = sum(1 for kw in LICH_LAM_VIEC_KEYWORDS if kw in q)
@@ -164,6 +180,9 @@ def classify(q: str):
         if "bao nhieu" in q:
             item = "tong_quan" if any(kw in q for kw in DS_KHU_PHO_KEYWORDS) else item
         return "thong_tin_phuong", item
+    
+    if nhan_su_score >= 1:
+        return "thong_tin_phuong", "nhan_su"
 
     if contact_score >= 1:
         return "thong_tin_phuong", "thong_tin_lien_he"
