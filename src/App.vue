@@ -184,7 +184,6 @@ const chunksData = ref<Array<any>>([])
 const aliasData = ref<Array<any>>([])
 const categoryFilter = ref<string>('')
 const subjectFilter = ref<string>('')
-const aliasFilter = ref<string>('')
 const editingId = ref<string | null>(null)
 const editingData = ref<any>(null)
 const activeSection = ref("chunks");
@@ -452,25 +451,6 @@ function closeCreateModal() {
     normalized_alias: '',
     document_id: null
   }
-}
-
-function addKeyword() {
-  const value = newKeyword.value.trim()
-
-  if (!value) return
-
-  // tránh trùng
-  if (editingData.value.keywords.includes(value)) {
-    newKeyword.value = ''
-    return
-  }
-
-  editingData.value.keywords.push(value)
-  newKeyword.value = ''
-}
-
-function removeKeyword(index: number) {
-  editingData.value.keywords.splice(index, 1)
 }
 
 onMounted(() => {
